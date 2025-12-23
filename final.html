@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Magic Christmas - Optimized Click</title>
+    <style>
+        body { margin: 0; background: #050505; overflow: hidden; font-family: 'Georgia', serif; cursor: pointer; }
+        
+        #title {
+            position: absolute; width: 100%; top: 40px; text-align: center;
+            color: #d4af37; font-size: 2.8rem; letter-spacing: 12px;
+            text-shadow: 0 0 15px rgba(212, 175, 55, 0.4); pointer-events: none;
+            z-index: 10;
+        }
+
+        #name-container {
+            position: absolute; width: 100%; bottom: 40px; text-align: center;
+            pointer-events: none; z-index: 10;
+        }
+
+        #sub-title {
+            color: #d4af37; font-size: 1.96rem; letter-spacing: 8px;
+            font-weight: bold; display: inline-block;
+            text-shadow: 0 0 15px rgba(212, 175, 55, 0.9), 0 0 30px rgba(212, 175, 55, 0.4);
+        }
+
+        #hint {
+            position: absolute; right: 25px; bottom: 25px;
+            color: rgba(212, 175, 55, 0.7); font-size: 0.85rem; letter-spacing: 1px;
+            text-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
+            pointer-events: none; z-index: 10; font-style: italic;
+        }
+
+        #sparkle-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 5;
+        }
+
+        #name-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+            transition: opacity 0.8s ease;
+            cursor: default; /* 覆盖层不显示手型 */
+        }
+        #name-overlay input {
+            background: transparent; border: none; border-bottom: 2px solid #d4af37;
+            color: #d4af37; font-size: 2rem; text-align: center; font-family: 'Georgia', serif;
+            outline: none; margin-bottom: 25px; width: 320px;
+        }
+        #name-overlay button {
+            background: #d4af37; border: none; padding: 12px 35px; color: #050505;
+            font-size: 1.2rem; cursor: pointer; border-radius: 4px; font-family: 'Georgia', serif;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="name-overlay">
+        <input type="text" id="name-input" placeholder="Enter Name..." maxlength="12">
+        <button id="start-btn">Confirm & Open Magic</button>
+    </div>
+
+    <div id="title">MERRY CHRISTMAS</div>
+    <div id="hint">Click anywhere to explore (1/4)</div>
+    
+    <canvas id="sparkle-canvas"></canvas>
+    <div id="name-container">
+        <div id="sub-title"></div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import TWEEN from 'https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@20.0.0/dist/tween.esm.js';
+
+        let scene, camera, renderer, controls, points, starGroup, snowPoints, magicStarPoints;
+        const snowCount = 12000;
+        const magicStarCount = 900; 
+        const count = 45000;
+        let mode = 0;
+        const targets = { tree: [], explode: [], hat: [], ginger: [] };
+        const colorSets = { tree: [], hat: [], ginger: [] };
+
+        const sparkleCanvas = document.getElementById('sparkle-canvas');
+        const sCtx = sparkleCanvas.getContext('2d');
+        let sparkles = [];
+
+        function initSparkles() {
+            sparkleCanvas.width = window.innerWidth;
+            sparkleCanvas.height = window.innerHeight;
+            sparkles = [];
+            for(let i=0; i<60; i++) {
+                sparkles.push({
+                    x: window.innerWidth/2 + (Math.random()-0.5)*400,
+                    y: window.innerHeight - 60 + (Math.random()-0.5)*100,
+                    size: Math.random()*1.8 + 0.8,
+                    speed: Math.random()*0.06 + 0.02,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        function drawSparklesEffect() {
+            sCtx.clearRect(0, 0, sparkleCanvas.width, sparkleCanvas.height);
+            sparkles.forEach(s => {
+                s.phase += s.speed;
+                const alpha = (Math.sin(s.phase) + 1) / 2;
+                sCtx.fillStyle = `rgba(212, 175, 55, ${alpha * 0.8})`;
+                sCtx.beginPath(); sCtx.arc(s.x, s.y, s.size, 0, Math.PI*2); sCtx.fill();
+                if(alpha > 0.7) {
+                    sCtx.strokeStyle = `rgba(212, 175, 55, ${alpha - 0.6})`;
+                    sCtx.lineWidth = 1;
+                    sCtx.beginPath();
+                    sCtx.moveTo(s.x - s.size * 4, s.y); sCtx.lineTo(s.x + s.size * 4, s.y);
+                    sCtx.moveTo(s.x, s.y - s.size * 4); sCtx.lineTo(s.x, s.y + s.size * 4);
+                    sCtx.stroke();
+                }
+            });
+            requestAnimationFrame(drawSparklesEffect);
+        }
+
+        function createCircleTexture() {
+            const c = document.createElement('canvas'); c.width = c.height = 64;
+            const ctx = c.getContext('2d');
+            const g = ctx.createRadialGradient(32,32,0,32,32,32);
+            g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(255,255,255,0)');
+            ctx.fillStyle = g; ctx.fillRect(0,0,64,64);
+            return new THREE.CanvasTexture(c);
+        }
+
+        function createStarTexture() {
+            const c = document.createElement('canvas'); c.width = c.height = 128;
+            const ctx = c.getContext('2d');
+            const cx = 64, cy = 64;
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
+            g.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
+            g.addColorStop(0.3, 'rgba(212, 175, 55, 0.6)'); 
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy-60); ctx.lineTo(cx+5, cy); ctx.lineTo(cx, cy+60); ctx.lineTo(cx-5, cy); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(cx-60, cy); ctx.lineTo(cx, cy-5); ctx.lineTo(cx+60, cy); ctx.lineTo(cx, cy+5); ctx.fill();
+            return new THREE.CanvasTexture(c);
+        }
+
+        function initData() {
+            const BROWN = [0.65, 0.4, 0.2], WHITE = [0.98, 0.98, 0.95], RED = [0.85, 0.1, 0.1], BLACK = [0.05, 0.05, 0.05];
+            for (let i = 0; i < count; i++) {
+                const p = i / count;
+                const h_tree = Math.random(); 
+                const rTree = (1-h_tree)*22; const aTree = Math.random()*Math.PI*2;
+                targets.tree.push(Math.cos(aTree)*Math.pow(Math.random(),0.6)*rTree, h_tree*50-20, Math.sin(aTree)*Math.pow(Math.random(),0.6)*rTree);
+                const cT = new THREE.Color();
+                if(i < count*0.05) cT.setRGB(0.8, 0.1, 0.1); 
+                else if(i < count*0.12) cT.setRGB(0.95, 0.95, 0.95); 
+                else { cT.setRGB(0.05, Math.random() * 0.2 + 0.1, 0.05); }
+                colorSets.tree.push(cT.r, cT.g, cT.b);
+                targets.explode.push((Math.random()-0.5)*450, (Math.random()-0.5)*450, (Math.random()-0.5)*450);
+
+                let hx,hy,hz;
+                if (p < 0.3) { const a=Math.random()*Math.PI*2; hx=Math.cos(a)*18; hy=-15+Math.random()*6; hz=Math.sin(a)*18; }
+                else if (p > 0.95) { const a=Math.random()*Math.PI*2, b=Math.random()*Math.PI; hx=16+Math.sin(b)*Math.cos(a)*5; hy=20+Math.sin(b)*Math.sin(a)*5; hz=Math.cos(b)*5; }
+                else { const rR=(p-0.3)/0.65; const a=Math.random()*Math.PI*2; hx=Math.cos(a)*(1-rR)*18+Math.pow(rR,2)*15; hy=rR*35-15; hz=Math.sin(a)*(1-rR)*18; }
+                targets.hat.push(hx, hy, hz);
+                const cH = new THREE.Color();
+                if(p<0.3 || p>0.95) cH.setRGB(0.95,0.95,0.9); else cH.setRGB(0.7,0.05,0.05);
+                colorSets.hat.push(cH.r, cH.g, cH.b);
+
+                let gx, gy, gz=0, gr, gg, gb;
+                if (p < 0.15) { 
+                    const subP = p / 0.15; const offset = [2, 28];
+                    if(subP < 0.3) { const a = Math.random()*Math.PI*2; gx = offset[0] + Math.cos(a)*8; gy = offset[1] + (Math.random()-0.5)*3; [gr,gg,gb]=WHITE; }
+                    else if (subP > 0.95) { const a = Math.random()*Math.PI*2; gx = offset[0]+7+Math.cos(a)*2.5; gy = offset[1]+9+Math.sin(a)*2.5; [gr,gg,gb]=WHITE; }
+                    else { const rR = (subP-0.3)/0.65; gx = offset[0] + (Math.random()-0.5)*15*(1-rR) + Math.pow(rR,2)*7; gy = offset[1]+2+rR*8; [gr,gg,gb]=RED; }
+                } else if (p < 0.18) { gx=(Math.random()>0.5?1:-1)*3.2; gy=21; [gr,gg,gb]=BLACK; }
+                else if (p < 0.20) { const side = Math.random()>0.5?1:-1; const a = Math.random()*Math.PI; gx=side*3.2 + Math.cos(a)*1.5; gy=23.5 + Math.sin(a)*0.8; [gr,gg,gb]=WHITE; }
+                else if (p < 0.22) { const a = Math.PI*1.2 + Math.random()*Math.PI*0.6; gx=Math.cos(a)*2.5; gy=18.5+Math.sin(a)*1.2; [gr,gg,gb]=RED; }
+                else if (p < 0.25) { const side = Math.random()>0.5?1:-1; gx=side * Math.random()*4; gy=13.5 + (Math.random()-0.5)*gx*0.8; [gr,gg,gb]=RED; }
+                else if (p < 0.28) { gx=0; gy=(p < 0.265 ? 6.5 : 0.5); const a=Math.random()*Math.PI*2; const r=Math.random()*1.2; gx+=Math.cos(a)*r; gy+=Math.sin(a)*r; [gr,gg,gb]=WHITE; }
+                else if (p < 0.35) {
+                    const limb = Math.floor((p-0.28)/0.0175); const a = Math.random()*Math.PI*2; const wave = Math.sin(a*5)*0.8;
+                    if(limb==0){ gx=-14+wave; gy=8+Math.cos(a)*3.5; } else if(limb==1){ gx=14+wave; gy=8+Math.cos(a)*3.5; }
+                    else if(limb==2){ gx=-8+wave; gy=-18+Math.cos(a)*4; } else { gx=8+wave; gy=-18+Math.cos(a)*4; }
+                    [gr,gg,gb]=WHITE;
+                } else {
+                    const subP = (p-0.35)/0.65;
+                    if(subP < 0.3) { const a = Math.random()*Math.PI*2; const r=Math.random()*9.5; gx=Math.cos(a)*r; gy=20+Math.sin(a)*r; }
+                    else if(subP < 0.6) { gx=(Math.random()-0.5)*18; gy=Math.random()*18-4; }
+                    else {
+                        const limb = Math.floor((subP-0.6)/0.1); const a = Math.random()*Math.PI*2; const r=Math.random()*4.5;
+                        if(limb==0){ gx=-13+Math.cos(a)*r; gy=8+Math.sin(a)*r; } else if(limb==1){ gx=13+Math.cos(a)*r; gy=8+Math.sin(a)*r; }
+                        else if(limb==2){ gx=-8+Math.cos(a)*r; gy=-20+Math.sin(a)*r; } else { gx=8+Math.cos(a)*r; gy=-20+Math.sin(a)*r; }
+                    }
+                    [gr,gg,gb]=BROWN;
+                }
+                targets.ginger.push(gx, gy, gz);
+                colorSets.ginger.push(gr, gg, gb);
+            }
+        }
+
+        document.getElementById('start-btn').onclick = (e) => {
+            e.stopPropagation(); // 阻止冒泡，避免触发 transition
+            const nameIn = document.getElementById('name-input').value.trim() || "DEAR"; 
+            document.getElementById('sub-title').innerText = nameIn.toUpperCase();
+            document.getElementById('name-overlay').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('name-overlay').style.display = 'none';
+                init(); initSparkles(); drawSparklesEffect(); animate();
+            }, 800);
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 1000);
+            camera.position.set(0, 10, 100);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            initData();
+
+            const snowGeo = new THREE.BufferGeometry();
+            const snowPos = [];
+            for(let i=0; i<snowCount; i++) {
+                snowPos.push((Math.random()-0.5)*420, Math.random()*280-80, (Math.random()-0.5)*420);
+            }
+            snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowPos, 3));
+            snowPoints = new THREE.Points(snowGeo, new THREE.PointsMaterial({ size: 0.5, map: createCircleTexture(), color: 0xcccccc, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+            scene.add(snowPoints);
+
+            const magicStarGeo = new THREE.BufferGeometry();
+            const magicPos = [];
+            for(let i=0; i<magicStarCount; i++) magicPos.push((Math.random()-0.5)*400, Math.random()*250, (Math.random()-0.5)*400);
+            magicStarGeo.setAttribute('position', new THREE.Float32BufferAttribute(magicPos, 3));
+            magicStarPoints = new THREE.Points(magicStarGeo, new THREE.PointsMaterial({ size: 5.5, map: createStarTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, color: 0xd4af37 }));
+            scene.add(magicStarPoints);
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(targets.tree, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colorSets.tree, 3));
+            points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.5, map: createCircleTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, vertexColors: true }));
+            scene.add(points);
+
+            starGroup = new THREE.Group();
+            const s = new THREE.Shape();
+            for(let i=0; i<10; i++){ const r = i%2 ? 1.8 : 4.5; const a = i*Math.PI*2/10; i ? s.lineTo(Math.cos(a)*r, Math.sin(a)*r) : s.moveTo(Math.cos(a)*r, Math.sin(a)*r); }
+            starGroup.add(new THREE.Mesh(new THREE.ShapeGeometry(s), new THREE.MeshBasicMaterial({color: 0xd4af37, side: 2})));
+            starGroup.position.y = 30.5; scene.add(starGroup);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.autoRotate = true; controls.enableDamping = true;
+            
+            // 使用 pointerdown 提升响应速度，并增加点击后的文字提示
+            window.addEventListener('pointerdown', (e) => {
+                if(document.getElementById('name-overlay').style.display !== 'none') return;
+                transition();
+            });
+
+            window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); initSparkles(); });
+        }
+
+        function transition() {
+            mode = (mode + 1) % 4;
+            
+            // 更新提示文字
+            const hintText = [
+                "Click anywhere to find surprise (1/4)",
+                "Magic is happening... (2/4)",
+                "A festive wish for you (3/4)",
+                "Almost there! (4/4)"
+            ];
+            document.getElementById('hint').innerText = hintText[mode];
+
+            controls.autoRotate = (mode !== 3);
+            if(mode === 3) new TWEEN.Tween(camera.position).to({x:0, y:5, z:100}, 1200).start();
+            let tPos = [targets.tree, targets.explode, targets.hat, targets.ginger][mode];
+            let tCol = [colorSets.tree, colorSets.tree, colorSets.hat, colorSets.ginger][mode];
+            new TWEEN.Tween(starGroup.scale).to({x: mode===0?1:0, y: mode===0?1:0, z: mode===0?1:0}, 600).start();
+            const posArr = points.geometry.attributes.position.array;
+            const colArr = points.geometry.attributes.color.array;
+            for (let i = 0; i < count; i++) {
+                const i3 = i * 3;
+                new TWEEN.Tween({ x: posArr[i3], y: posArr[i3+1], z: posArr[i3+2], r: colArr[i3], g: colArr[i3+1], b: colArr[i3+2] })
+                .to({ x: tPos[i3], y: tPos[i3+1], z: tPos[i3+2], r: tCol[i3], g: tCol[i3+1], b: tCol[i3+2] }, 1500)
+                .easing(TWEEN.Easing.Cubic.InOut)
+                .onUpdate(obj => {
+                    posArr[i3]=obj.x; posArr[i3+1]=obj.y; posArr[i3+2]=obj.z;
+                    colArr[i3]=obj.r; colArr[i3+1]=obj.g; colArr[i3+2]=obj.b;
+                    points.geometry.attributes.position.needsUpdate = true;
+                    points.geometry.attributes.color.needsUpdate = true;
+                }).start();
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            TWEEN.update();
+            controls.update();
+            const time = Date.now() * 0.001;
+            if(mode === 3) { points.rotation.z = Math.sin(time * 2.5) * 0.12; } else { points.rotation.z = 0; }
+            if(starGroup) starGroup.rotation.y += 0.015;
+            
+            const sPos = snowPoints.geometry.attributes.position.array;
+            for(let i=1; i<sPos.length; i+=3) { sPos[i] -= 0.12; if(sPos[i] < -60) sPos[i] = 180; }
+            snowPoints.geometry.attributes.position.needsUpdate = true;
+
+            const mPos = magicStarPoints.geometry.attributes.position.array;
+            for(let i=1; i<mPos.length; i+=3) { mPos[i] -= 0.35; if(mPos[i] < -60) mPos[i] = 180; }
+            magicStarPoints.geometry.attributes.position.needsUpdate = true;
+            magicStarPoints.material.opacity = 0.4 + Math.sin(time * 3) * 0.5;
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
